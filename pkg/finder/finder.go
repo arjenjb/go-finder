@@ -266,6 +266,12 @@ func (f Finder) NotPath(path ...string) Finder {
 	return nf
 }
 
+func (f Finder) NameRegex(r *regexp.Regexp) Finder {
+	nf := f
+	nf.matchName = append(nf.matchName, *r)
+	return nf
+}
+
 // NewFinder creates a new finder for you
 func NewFinder() Finder {
 	return Finder{
