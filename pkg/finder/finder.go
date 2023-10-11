@@ -125,6 +125,7 @@ func (f Finder) Find() ([]Entry, error) {
 	nameRegexes := append(f.matchName, Map(f.name, func(str string) regexp.Regexp {
 		return asGlobRegex(str, true)
 	})...)
+
 	notDirNameRegexes := f.notDirNameRegexes()
 
 	depth := 0
@@ -140,6 +141,15 @@ func (f Finder) Find() ([]Entry, error) {
 			return nil
 		}
 
+		// Check directory names that should not match, we won't descent into these
+		if entry.IsDir() && len(notDirNameRegexes) > 0 {
+			if AnySatisfy(notDirNameRegexes, func(r regexp.Regexp) bool {
+				return r.MatchString(entry.Name())
+			}) {
+				return filepath.SkipDir
+			}
+		}
+
 		// Figure out the current depth
 		if rdir == depthPrefix {
 			// Nothing the matter
@@ -151,8 +161,17 @@ func (f Finder) Find() ([]Entry, error) {
 			depthPrefix = rdir
 		}
 
-		if f.t == File && !entry.Type().IsRegular() {
+		if f.minDepth != -1 && depth < f.minDepth {
 			return nil
+		}
+
+		var ret error = nil
+		if entry.IsDir() && f.maxDepth != -1 && depth == f.maxDepth {
+			ret = filepath.SkipDir
+		}
+
+		if f.t == File && !entry.Type().IsRegular() {
+			return ret
 		}
 		if f.t == Directory && !entry.IsDir() {
 			return nil
@@ -167,7 +186,8 @@ func (f Finder) Find() ([]Entry, error) {
 			}
 		}
 
-		if len(nameRegexes) > 0 {
+		// Check names of files
+		if !entry.IsDir() && len(nameRegexes) > 0 {
 			if !AnySatisfy(nameRegexes, func(r regexp.Regexp) bool {
 				return r.MatchString(entry.Name())
 			}) {
@@ -175,20 +195,12 @@ func (f Finder) Find() ([]Entry, error) {
 			}
 		}
 
-		if entry.IsDir() && len(notDirNameRegexes) > 0 {
-			if AnySatisfy(notDirNameRegexes, func(r regexp.Regexp) bool {
-				return r.MatchString(entry.Name())
-			}) {
-				return nil
-			}
-		}
-
-		// Check paths
+		// Check paths names
 		if len(f.notMatchPath) > 0 {
 			if AnySatisfy(f.notMatchPath, func(r regexp.Regexp) bool {
 				return r.MatchString(npath)
 			}) {
-				return nil
+				return ret
 			}
 		}
 
@@ -196,17 +208,8 @@ func (f Finder) Find() ([]Entry, error) {
 			if !AnySatisfy(f.matchPath, func(r regexp.Regexp) bool {
 				return r.MatchString(npath)
 			}) {
-				return nil
+				return ret
 			}
-		}
-
-		// Check depth
-		if f.maxDepth != -1 && depth > f.maxDepth {
-			return filepath.SkipDir
-		}
-
-		if f.minDepth != -1 && depth < f.minDepth {
-			return nil
 		}
 
 		entries = append(entries, Entry{
@@ -214,13 +217,18 @@ func (f Finder) Find() ([]Entry, error) {
 			entry: entry,
 			depth: depth,
 		})
-		return nil
+
+		return ret
 	}
 
 	f.WalkDirectories(WalkFunc)
 	f.WalkFS(WalkFunc)
 
 	return entries, nil
+}
+
+func asFullGlobRegex(str string) regexp.Regexp {
+	return asGlobRegex(str, true)
 }
 
 type myWalkFunc func(path string, entry fs.DirEntry, err error, root string) error
@@ -269,12 +277,10 @@ func (f Finder) Path(path ...string) Finder {
 }
 
 func (f Finder) NotPath(path ...string) Finder {
-	regexes := Map(path, func(each string) regexp.Regexp {
-		return *regexp.MustCompile(regexp.QuoteMeta(each))
-	})
-
 	nf := f
-	nf.notMatchPath = append(nf.notMatchPath, regexes...)
+	nf.notMatchPath = append(nf.notMatchPath, Map(path, func(each string) regexp.Regexp {
+		return asGlobRegex(each, false)
+	})...)
 	return nf
 }
 
