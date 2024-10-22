@@ -7,7 +7,7 @@ import (
 )
 
 func Test_asGlobRegexPattern(t *testing.T) {
-	assert.Equal(t, "^.*\\.y.ml$", asGlobRegexPattern("*.y?ml"))
-	assert.Equal(t, "^.*\\.txt$", asGlobRegexPattern("*.txt"))
-	assert.Equal(t, "^.*\\.....$", asGlobRegexPattern("*.????"))
+	assert.Equal(t, "^.*\\.y.ml$", asGlobRegexPattern("*.y?ml", true))
+	assert.Equal(t, "^.*\\.txt$", asGlobRegexPattern("*.txt", true))
+	assert.Equal(t, "^.*\\.....$", asGlobRegexPattern("*.????", true))
 }

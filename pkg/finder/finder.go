@@ -26,9 +26,11 @@ const (
 
 // Finder tracks the finders configuration prior to execution
 type Finder struct {
-	name      []string
-	matchName []regexp.Regexp
-	//notMatchName       []regexp.Regexp // Not supported yet, but will be implemented later
+	name []string
+
+	matchName    []regexp.Regexp
+	notMatchName []regexp.Regexp
+
 	matchPath          []regexp.Regexp
 	notMatchPath       []regexp.Regexp
 	t                  FileType
@@ -120,7 +122,9 @@ func (f Finder) MustFind() []Entry {
 func (f Finder) Find() ([]Entry, error) {
 	var entries []Entry
 
-	nameRegexes := append(f.matchName, Map(f.name, asGlobRegex)...)
+	nameRegexes := append(f.matchName, Map(f.name, func(str string) regexp.Regexp {
+		return asGlobRegex(str, true)
+	})...)
 	notDirNameRegexes := f.notDirNameRegexes()
 
 	depth := 0
@@ -155,6 +159,14 @@ func (f Finder) Find() ([]Entry, error) {
 		}
 
 		// Check names
+		if len(f.notMatchName) > 0 {
+			if AnySatisfy(f.notMatchName, func(r regexp.Regexp) bool {
+				return r.MatchString(entry.Name())
+			}) {
+				return nil
+			}
+		}
+
 		if len(nameRegexes) > 0 {
 			if !AnySatisfy(nameRegexes, func(r regexp.Regexp) bool {
 				return r.MatchString(entry.Name())
@@ -248,7 +260,7 @@ func (f Finder) InFS(fs fs.FS) Finder {
 
 func (f Finder) Path(path ...string) Finder {
 	regexes := Map(path, func(each string) regexp.Regexp {
-		return *regexp.MustCompile(regexp.QuoteMeta(each))
+		return asGlobRegex(each, false)
 	})
 
 	nf := f
@@ -269,6 +281,12 @@ func (f Finder) NotPath(path ...string) Finder {
 func (f Finder) NameRegex(r *regexp.Regexp) Finder {
 	nf := f
 	nf.matchName = append(nf.matchName, *r)
+	return nf
+}
+
+func (f Finder) NotName(name string) Finder {
+	nf := f
+	nf.notMatchName = append(f.notMatchName, asGlobRegex(name, true))
 	return nf
 }
 

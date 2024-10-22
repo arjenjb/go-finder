@@ -6,12 +6,15 @@ import (
 	"strings"
 )
 
-func asGlobRegexPattern(glob string) string {
+func asGlobRegexPattern(glob string, full bool) string {
 	re := regexp.MustCompile("[*?]|[^*?]+")
 	result := re.FindAllStringSubmatch(glob, -1)
 	var pattern strings.Builder
 
-	pattern.WriteString("^")
+	if full {
+		pattern.WriteString("^")
+	}
+
 	for _, each := range result {
 		switch each[0] {
 		case "?":
@@ -22,11 +25,14 @@ func asGlobRegexPattern(glob string) string {
 			pattern.WriteString(regexp.QuoteMeta(each[0]))
 		}
 	}
-	pattern.WriteString("$")
+
+	if full {
+		pattern.WriteString("$")
+	}
 
 	return pattern.String()
 }
 
-func asGlobRegex(glob string) regexp.Regexp {
-	return *util.Must(regexp.Compile(asGlobRegexPattern(glob)))
+func asGlobRegex(glob string, full bool) regexp.Regexp {
+	return *util.Must(regexp.Compile(asGlobRegexPattern(glob, full)))
 }
