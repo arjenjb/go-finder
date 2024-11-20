@@ -39,6 +39,7 @@ type Finder struct {
 	ignore             IgnoreMask
 	maxDepth, minDepth int
 	fs                 []fs.FS
+	followSymlinks     bool
 
 	//maxSize, minSize int // Not supported yet, but will be implemented later
 }
@@ -119,6 +120,28 @@ func (f Finder) MustFind() []Entry {
 	return Must(f.Find())
 }
 
+type linkEntry struct {
+	info fs.FileInfo
+}
+
+func (l linkEntry) Name() string {
+	return l.info.Name()
+}
+
+func (l linkEntry) IsDir() bool {
+	return l.info.IsDir()
+}
+
+func (l linkEntry) Type() fs.FileMode {
+	return l.info.Mode()
+}
+
+func (l linkEntry) Info() (fs.FileInfo, error) {
+	return l.info, nil
+}
+
+var _ fs.DirEntry = linkEntry{}
+
 func (f Finder) Find() ([]Entry, error) {
 	var entries []Entry
 
@@ -141,7 +164,6 @@ func (f Finder) Find() ([]Entry, error) {
 			return nil
 		}
 
-		// Check directory names that should not match, we won't descent into these
 		if entry.IsDir() && len(notDirNameRegexes) > 0 {
 			if AnySatisfy(notDirNameRegexes, func(r regexp.Regexp) bool {
 				return r.MatchString(entry.Name())
@@ -168,6 +190,11 @@ func (f Finder) Find() ([]Entry, error) {
 		var ret error = nil
 		if entry.IsDir() && f.maxDepth != -1 && depth == f.maxDepth {
 			ret = filepath.SkipDir
+		}
+
+		// Resolve symlinks, if thats what we want
+		if (entry.Type()&os.ModeSymlink) != 0 && f.followSymlinks {
+			entry, err = resolveLink(path)
 		}
 
 		if f.t == File && !entry.Type().IsRegular() {
@@ -225,6 +252,32 @@ func (f Finder) Find() ([]Entry, error) {
 	f.WalkFS(WalkFunc)
 
 	return entries, nil
+}
+
+func resolveLink(path string) (fs.DirEntry, error) {
+	for {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return nil, err
+		}
+
+		if !filepath.IsAbs(target) {
+			target, err = filepath.Abs(filepath.Join(filepath.Dir(path), target))
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		t, err := os.Stat(target)
+		if t.Mode()&os.ModeSymlink != 0 {
+			path = filepath.Join(filepath.Dir(path), target)
+		} else {
+			return linkEntry{
+				info: t,
+			}, nil
+		}
+
+	}
 }
 
 func asFullGlobRegex(str string) regexp.Regexp {
@@ -293,6 +346,12 @@ func (f Finder) NameRegex(r *regexp.Regexp) Finder {
 func (f Finder) NotName(name string) Finder {
 	nf := f
 	nf.notMatchName = append(f.notMatchName, asGlobRegex(name, true))
+	return nf
+}
+
+func (f Finder) FollowSymlinks() Finder {
+	nf := f
+	nf.followSymlinks = true
 	return nf
 }
 
